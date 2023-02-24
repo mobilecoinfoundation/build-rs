@@ -14,6 +14,13 @@ Cargo build-script assistance, from MobileCoin.
 
 This crate provides a programmatic API for dealing with the various strings passed into build scripts via environment variables.
 
+```rust, no_run
+use mc_build_rs::Environment;
+
+let env = Environment::new().expect("Could not parse environment");
+assert_eq!(env.name(), "mc_build_rs");
+```
+
 [chat-image]: https://img.shields.io/discord/844353360348971068?style=flat-square
 [chat-link]: https://mobilecoin.chat
 [license-image]: https://img.shields.io/crates/l/mc-build-rs?style=flat-square
