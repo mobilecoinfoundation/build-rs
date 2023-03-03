@@ -2,19 +2,20 @@
 
 //! This module contains a cargo invoker
 
-use crate::{
-    env::Environment,
-    vars::{
-        ENV_CARGO_BUILD_DEP_INFO_BASEDIR, ENV_CARGO_BUILD_JOBS, ENV_CARGO_BUILD_PIPELINING,
-        ENV_CARGO_BUILD_TARGET, ENV_CARGO_CACHE_RUSTC_INFO, ENV_CARGO_HOME, ENV_CARGO_HTTP_CAINFO,
-        ENV_CARGO_HTTP_CHECK_REVOKE, ENV_CARGO_HTTP_DEBUG, ENV_CARGO_HTTP_LOW_SPEED_LIMIT,
-        ENV_CARGO_HTTP_MULTIPLEXING, ENV_CARGO_HTTP_SSL_VERSION, ENV_CARGO_HTTP_USER_AGENT,
-        ENV_CARGO_INCREMENTAL, ENV_CARGO_NET_GIT_FETCH_WITH_CLI, ENV_CARGO_NET_OFFLINE,
-        ENV_CARGO_NET_RETRY, ENV_CARGO_TARGET_DIR, ENV_CARGO_TERM_COLOR, ENV_CARGO_TERM_VERBOSE,
-        ENV_HTTPS_PROXY, ENV_HTTP_TIMEOUT, ENV_RUSTC, ENV_RUSTC_WRAPPER, ENV_RUSTDOC,
-        ENV_RUSTDOCFLAGS, ENV_RUSTFLAGS, ENV_TERM,
-    },
+#[cfg_attr(test, double)]
+use crate::env::Environment;
+use crate::vars::{
+    ENV_CARGO_BUILD_DEP_INFO_BASEDIR, ENV_CARGO_BUILD_JOBS, ENV_CARGO_BUILD_PIPELINING,
+    ENV_CARGO_BUILD_TARGET, ENV_CARGO_CACHE_RUSTC_INFO, ENV_CARGO_HOME, ENV_CARGO_HTTP_CAINFO,
+    ENV_CARGO_HTTP_CHECK_REVOKE, ENV_CARGO_HTTP_DEBUG, ENV_CARGO_HTTP_LOW_SPEED_LIMIT,
+    ENV_CARGO_HTTP_MULTIPLEXING, ENV_CARGO_HTTP_SSL_VERSION, ENV_CARGO_HTTP_USER_AGENT,
+    ENV_CARGO_INCREMENTAL, ENV_CARGO_NET_GIT_FETCH_WITH_CLI, ENV_CARGO_NET_OFFLINE,
+    ENV_CARGO_NET_RETRY, ENV_CARGO_TARGET_DIR, ENV_CARGO_TERM_COLOR, ENV_CARGO_TERM_VERBOSE,
+    ENV_HTTPS_PROXY, ENV_HTTP_TIMEOUT, ENV_RUSTC, ENV_RUSTC_WRAPPER, ENV_RUSTDOC, ENV_RUSTDOCFLAGS,
+    ENV_RUSTFLAGS, ENV_TERM,
 };
+#[cfg(test)]
+use mockall_double::double;
 use std::{
     collections::HashMap,
     ffi::OsStr,
@@ -584,5 +585,109 @@ impl CargoBuilder {
     pub fn locked(&mut self, locked: bool) -> &mut Self {
         self.locked = locked;
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    //TODO: Needs to be removed once rust 1.68 stable is released
+    #[rustversion::stable]
+    const IS_RUST_STABLE_VERSION: bool = true;
+    #[rustversion::any(beta, nightly)]
+    const IS_RUST_STABLE_VERSION: bool = false;
+
+    fn init_mock_env(cargo_path: &str, profile: &str, cargo_locked: bool) -> Environment {
+        let mut mock = Environment::default();
+
+        mock.expect_cargo()
+            .return_const(PathBuf::from_str(cargo_path).expect("Fail"));
+        mock.expect_profile().return_const(profile.to_string());
+        mock.expect_locked().return_const(cargo_locked);
+        mock
+    }
+
+    #[test]
+    fn cargo_builder() {
+        const EXPECTED_OUTPUT_DIR: &str = "/path_to_output_directory";
+        const EXPECTED_CARGO_PATH: &str = "/path_to_cargo";
+        const EXPECTED_PROFILE: &str = "debug";
+        const EXPECTED_CARGO_LOCKED: bool = true;
+
+        let mock = init_mock_env(EXPECTED_CARGO_PATH, EXPECTED_PROFILE, EXPECTED_CARGO_LOCKED);
+        let cargo_builder = CargoBuilder::new(&mock, &Path::new(EXPECTED_OUTPUT_DIR), false);
+        let actual_dir = cargo_builder.working_dir.to_str().expect("Fail");
+        let actual_cargo_path = cargo_builder.cargo_path.to_str().expect("Fail");
+
+        assert_eq!(actual_dir, EXPECTED_OUTPUT_DIR);
+        assert_eq!(actual_cargo_path, EXPECTED_CARGO_PATH);
+        assert_eq!(cargo_builder.profile, EXPECTED_PROFILE);
+        assert_eq!(cargo_builder.locked, true);
+    }
+
+    #[test]
+    fn construct_cargo_command() {
+        let mock = init_mock_env("/path_to_cargo", "debug", true);
+        let mut cargo_builder =
+            CargoBuilder::new(&mock, &Path::new("/path_to_output_directory"), false);
+        let cmd = cargo_builder.construct();
+        let actual_cmd = format!("{:?}", cmd);
+        let expected_cmd = match IS_RUST_STABLE_VERSION {
+            true => "\"/path_to_cargo\" \"build\" \"-vv\" \"--locked\"",
+            false => "cd \"/path_to_output_directory\" && \"/path_to_cargo\" \"build\" \"-vv\" \"--locked\"",
+        };
+
+        assert_eq!(actual_cmd, expected_cmd);
+    }
+
+    #[test]
+    fn change_cargo_path() {
+        let expected_cargo_path = "/path_to_cargo";
+        let expected_changed_cargo_path = "/changed/path_to_cargo";
+        let mock = init_mock_env(expected_cargo_path, "debug", true);
+        let mut cargo_builder =
+            CargoBuilder::new(&mock, &Path::new("/path_to_output_directory"), false);
+        let mut actual_cargo_path = cargo_builder.cargo_path.to_str().expect("Fail");
+
+        assert_eq!(actual_cargo_path, expected_cargo_path);
+
+        cargo_builder.cargo_path(Path::new(expected_changed_cargo_path));
+        actual_cargo_path = cargo_builder.cargo_path.to_str().expect("Fail");
+
+        assert_eq!(actual_cargo_path, expected_changed_cargo_path);
+    }
+
+    #[test]
+    fn change_target() {
+        let expected_target = "x86_64-unknown-linux-gnu";
+        let mock = init_mock_env("/path_to_cargo", "debug", true);
+        let mut cargo_builder =
+            CargoBuilder::new(&mock, &Path::new("/path_to_output_directory"), false);
+        let mut actual_target = cargo_builder.target.as_ref();
+
+        assert_eq!(actual_target, None);
+
+        cargo_builder.target(expected_target);
+        actual_target = cargo_builder.target.as_ref();
+
+        assert_eq!(actual_target.expect("Fail"), expected_target);
+    }
+
+    #[test]
+    fn change_rust_flags() {
+        let expected_rust_flags = ["-D", "warnings", "-C"];
+        let mock = init_mock_env("/path_to_cargo", "debug", true);
+        let mut cargo_builder =
+            CargoBuilder::new(&mock, &Path::new("/path_to_output_directory"), false);
+        let mut rust_flags: &Vec<String> = cargo_builder.rustflags.as_ref();
+
+        assert_eq!(rust_flags.is_empty(), true);
+
+        cargo_builder.add_rust_flags(&expected_rust_flags);
+        rust_flags = cargo_builder.rustflags.as_ref();
+
+        assert_eq!(rust_flags.as_slice(), expected_rust_flags);
     }
 }

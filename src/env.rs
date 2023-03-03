@@ -4,6 +4,8 @@
 
 use crate::vars::*;
 use displaydoc::Display;
+#[cfg(test)]
+use mockall::mock;
 use std::{
     borrow::ToOwned,
     collections::{hash_map::Iter as HashMapIter, hash_set::Iter as HashSetIter, HashMap, HashSet},
@@ -208,6 +210,19 @@ pub struct Environment {
     // Derived variables
     target_dir: PathBuf,
     profile_target_dir: PathBuf,
+}
+
+#[cfg(test)]
+mock! {
+    pub Environment {
+        pub fn cargo(&self) -> &Path;
+        pub fn locked(&self) -> bool;
+        pub fn profile(&self) -> &str;
+    }
+
+    impl Clone for Environment {
+        fn clone(&self) -> Self;
+    }
 }
 
 impl Default for Environment {
@@ -600,5 +615,63 @@ impl Environment {
     /// Get the profile target directory
     pub fn profile_target_dir(&self) -> &Path {
         &self.profile_target_dir
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    #[test]
+    fn init_env() {
+        let expected_out_dir = "/x86_64-unknown-linux-gnu/path_to_out_directory";
+        let expected_target = "x86_64-unknown-linux-gnu";
+        let expected_cargo_path = "/path_to_cargo";
+        let expected_profile = "debug";
+        let expected_cargo_package_version = "2.1.0-pre0";
+
+        temp_env::with_vars(
+            [
+                ("OUT_DIR", Some(expected_out_dir)),
+                ("TARGET", Some(expected_target)),
+                ("PROFILE", Some(expected_profile)),
+                ("CARGO", Some(expected_cargo_path)),
+                ("HOST", Some("host")),
+                ("NUM_JOBS", Some("11")),
+                ("OPT_LEVEL", Some("2")),
+                ("RUSTC", Some("rustc")),
+                ("RUSTDOC", Some("rustdoc")),
+                ("CARGO_PKG_VERSION", Some(expected_cargo_package_version)),
+                ("CARGO_PKG_AUTHORS", Some("MobileCoin")),
+                ("CARGO_PKG_NAME", Some("mc-build-rs")),
+                ("CARGO_PKG_DESCRIPTION", Some("")),
+                ("CARGO_PKG_HOMEPAGE", Some("")),
+                ("CARGO_PKG_REPOSITORY", Some("")),
+                ("CARGO_CFG_TARGET_ARCH", Some("x86_64")),
+                ("CARGO_CFG_TARGET_ENDIAN", Some("little")),
+                ("CARGO_CFG_TARGET_ENV", Some("")),
+                ("CARGO_CFG_TARGET_FAMILY", Some("unix")),
+                ("CARGO_CFG_TARGET_FEATURE", Some("adx,aes,avx,avx2,")),
+                ("CARGO_CFG_TARGET_OS", Some("linux")),
+                ("CARGO_CFG_TARGET_POINTER_WIDTH", Some("64")),
+                ("CARGO_CFG_TARGET_VENDOR", Some("unknown")),
+            ],
+            || {
+                let env = Environment::default();
+
+                assert_eq!(
+                    env.out_dir(),
+                    PathBuf::from_str(expected_out_dir).expect("Fail")
+                );
+                assert_eq!(env.target, expected_target);
+                assert_eq!(env.profile, expected_profile);
+                assert_eq!(
+                    env.cargo_path,
+                    PathBuf::from_str(expected_cargo_path).expect("Fail")
+                );
+                assert_eq!(env.pkg_version, expected_cargo_package_version);
+            },
+        );
     }
 }
