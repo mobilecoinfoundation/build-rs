@@ -593,12 +593,6 @@ mod tests {
     use super::*;
     use std::str::FromStr;
 
-    //TODO: Needs to be removed once rust 1.68 stable is released
-    #[rustversion::stable]
-    const IS_RUST_STABLE_VERSION: bool = true;
-    #[rustversion::any(beta, nightly)]
-    const IS_RUST_STABLE_VERSION: bool = false;
-
     fn init_mock_env(cargo_path: &str, profile: &str, cargo_locked: bool) -> Environment {
         let mut mock = Environment::default();
 
@@ -634,10 +628,8 @@ mod tests {
             CargoBuilder::new(&mock, &Path::new("/path_to_output_directory"), false);
         let cmd = cargo_builder.construct();
         let actual_cmd = format!("{:?}", cmd);
-        let expected_cmd = match IS_RUST_STABLE_VERSION {
-            true => "\"/path_to_cargo\" \"build\" \"-vv\" \"--locked\"",
-            false => "cd \"/path_to_output_directory\" && \"/path_to_cargo\" \"build\" \"-vv\" \"--locked\"",
-        };
+        let expected_cmd =
+            "cd \"/path_to_output_directory\" && \"/path_to_cargo\" \"build\" \"-vv\" \"--locked\"";
 
         assert_eq!(actual_cmd, expected_cmd);
     }
