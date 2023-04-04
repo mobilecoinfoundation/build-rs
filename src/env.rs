@@ -237,20 +237,20 @@ impl Environment {
         let out_dir = PathBuf::from(
             var(ENV_OUT_DIR).map_err(|e| EnvironmentError::Var(ENV_OUT_DIR.to_owned(), e))?,
         );
+        // Convert ths to path?
+        let cargo_target_dir = PathBuf::from(
+            var(ENV_CARGO_TARGET_DIR)
+                .map_err(|e| EnvironmentError::Var(ENV_CARGO_TARGET_DIR.to_owned(), e))?,
+        );
         let target =
             var(ENV_TARGET).map_err(|e| EnvironmentError::Var(ENV_TARGET.to_owned(), e))?;
         let profile =
             var(ENV_PROFILE).map_err(|e| EnvironmentError::Var(ENV_PROFILE.to_owned(), e))?;
-        let profile_target_dir = out_dir
-            .as_path()
-            .ancestors()
-            .find(|path| path.ends_with(&target) || path.ends_with(&profile))
-            .ok_or_else(|| EnvironmentError::OutDir(out_dir.clone()))?
-            .to_owned();
-        let target_dir = profile_target_dir
-            .parent()
-            .ok_or_else(|| EnvironmentError::OutDir(out_dir.clone()))?
-            .to_owned();
+
+        let (target_dir, profile_target_dir) =
+            Self::get_target_profile_dir(&out_dir, &cargo_target_dir, target)
+                .ok_or_else(|| EnvironmentError::OutDir(out_dir.clone()))
+                .unwrap();
 
         let target_has_atomic = var(ENV_CARGO_CFG_TARGET_HAS_ATOMIC)
             .unwrap_or_default()
@@ -394,6 +394,27 @@ impl Environment {
             target_dir,
             profile_target_dir,
         })
+    }
+
+    fn get_target_profile_dir(
+        out_dir: &Path,
+        target_dir: &PathBuf,
+        target: String,
+    ) -> Option<(PathBuf, PathBuf)> {
+        let mut ancestor = out_dir.ancestors().peekable();
+        while let Some(current_path) = ancestor.next() {
+            if let Some(parent_path) = ancestor.peek() {
+                if !target.is_empty() && parent_path.ends_with(&target)
+                    || !target_dir.as_os_str().is_empty() && parent_path.ends_with(target_dir)
+                    || parent_path.ends_with("target")
+                {
+                    let tuple = (PathBuf::from(parent_path), PathBuf::from(current_path));
+
+                    return Some(tuple);
+                }
+            }
+        }
+        None
     }
 
     /// Get the path to the cargo executables
@@ -621,7 +642,76 @@ impl Environment {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::str::FromStr;
+    use fluent_asserter::prelude::*;
+
+    fn setup_env(env_values: HashMap<&str, Option<&str>>) -> Environment {
+        temp_env::with_vars(
+            [
+                (
+                    ENV_OUT_DIR,
+                    if env_values.get(ENV_OUT_DIR).is_some() {
+                        env_values.get(ENV_OUT_DIR).cloned().unwrap()
+                    } else {
+                        Some("/path_to_out_dir")
+                    },
+                ),
+                (
+                    ENV_TARGET,
+                    if env_values.get(ENV_TARGET).is_some() {
+                        env_values.get(ENV_TARGET).cloned().unwrap()
+                    } else {
+                        Some("target")
+                    },
+                ),
+                (
+                    ENV_PROFILE,
+                    if env_values.get(ENV_PROFILE).is_some() {
+                        env_values.get(ENV_PROFILE).cloned().unwrap()
+                    } else {
+                        Some("profile")
+                    },
+                ),
+                (
+                    ENV_CARGO,
+                    if env_values.get(ENV_CARGO).is_some() {
+                        env_values.get(ENV_CARGO).cloned().unwrap()
+                    } else {
+                        Some("/path_to_cargo")
+                    },
+                ),
+                (ENV_HOST, Some("host")),
+                (ENV_NUM_JOBS, Some("11")),
+                (ENV_OPT_LEVEL, Some("2")),
+                (ENV_RUSTC, Some("rustc")),
+                (ENV_RUSTDOC, Some("rustdoc")),
+                (
+                    ENV_CARGO_TARGET_DIR,
+                    if env_values.get(ENV_CARGO_TARGET_DIR).is_some() {
+                        env_values.get(ENV_CARGO_TARGET_DIR).cloned().unwrap()
+                    } else {
+                        Some("/path_to_target_dir")
+                    },
+                ),
+                (ENV_CARGO_PKG_VERSION, Some("2.1.0-pre0")),
+                (ENV_CARGO_PKG_AUTHORS, Some("MobileCoin")),
+                (ENV_CARGO_PKG_NAME, Some("mc-build-rs")),
+                (ENV_CARGO_PKG_DESCRIPTION, Some("")),
+                (ENV_CARGO_PKG_HOMEPAGE, Some("")),
+                (ENV_CARGO_PKG_REPOSITORY, Some("")),
+                (ENV_CARGO_CFG_TARGET_ARCH, Some("x86_64")),
+                (ENV_CARGO_CFG_TARGET_ENDIAN, Some("little")),
+                (ENV_CARGO_CFG_TARGET_ENV, Some("")),
+                (ENV_CARGO_CFG_TARGET_FAMILY, Some("unix")),
+                (ENV_CARGO_CFG_TARGET_FEATURE, Some("adx,aes,avx,avx2,")),
+                (ENV_CARGO_CFG_TARGET_OS, Some("linux")),
+                (ENV_CARGO_CFG_TARGET_POINTER_WIDTH, Some("64")),
+                (ENV_CARGO_CFG_TARGET_VENDOR, Some("unknown")),
+            ],
+            || {
+                return Environment::default();
+            },
+        )
+    }
 
     #[test]
     fn init_env() {
@@ -631,47 +721,116 @@ mod tests {
         let expected_profile = "debug";
         let expected_cargo_package_version = "2.1.0-pre0";
 
-        temp_env::with_vars(
-            [
-                ("OUT_DIR", Some(expected_out_dir)),
-                ("TARGET", Some(expected_target)),
-                ("PROFILE", Some(expected_profile)),
-                ("CARGO", Some(expected_cargo_path)),
-                ("HOST", Some("host")),
-                ("NUM_JOBS", Some("11")),
-                ("OPT_LEVEL", Some("2")),
-                ("RUSTC", Some("rustc")),
-                ("RUSTDOC", Some("rustdoc")),
-                ("CARGO_PKG_VERSION", Some(expected_cargo_package_version)),
-                ("CARGO_PKG_AUTHORS", Some("MobileCoin")),
-                ("CARGO_PKG_NAME", Some("mc-build-rs")),
-                ("CARGO_PKG_DESCRIPTION", Some("")),
-                ("CARGO_PKG_HOMEPAGE", Some("")),
-                ("CARGO_PKG_REPOSITORY", Some("")),
-                ("CARGO_CFG_TARGET_ARCH", Some("x86_64")),
-                ("CARGO_CFG_TARGET_ENDIAN", Some("little")),
-                ("CARGO_CFG_TARGET_ENV", Some("")),
-                ("CARGO_CFG_TARGET_FAMILY", Some("unix")),
-                ("CARGO_CFG_TARGET_FEATURE", Some("adx,aes,avx,avx2,")),
-                ("CARGO_CFG_TARGET_OS", Some("linux")),
-                ("CARGO_CFG_TARGET_POINTER_WIDTH", Some("64")),
-                ("CARGO_CFG_TARGET_VENDOR", Some("unknown")),
-            ],
-            || {
-                let env = Environment::default();
+        let mut values = HashMap::new();
+        values.insert(ENV_OUT_DIR, Some(expected_out_dir));
+        values.insert(ENV_TARGET, Some(expected_target));
+        values.insert(ENV_CARGO, Some(expected_cargo_path));
+        values.insert(ENV_PROFILE, Some(expected_profile));
+        values.insert(ENV_CARGO_PKG_VERSION, Some(expected_cargo_package_version));
 
-                assert_eq!(
-                    env.out_dir(),
-                    PathBuf::from_str(expected_out_dir).expect("Fail")
-                );
-                assert_eq!(env.target, expected_target);
-                assert_eq!(env.profile, expected_profile);
-                assert_eq!(
-                    env.cargo_path,
-                    PathBuf::from_str(expected_cargo_path).expect("Fail")
-                );
-                assert_eq!(env.pkg_version, expected_cargo_package_version);
-            },
+        let env = setup_env(values);
+
+        assert_eq!(
+            env.out_dir(),
+            PathBuf::from_str(expected_out_dir).expect("Fail")
+        );
+        assert_eq!(env.target, expected_target);
+        assert_eq!(env.profile, expected_profile);
+        assert_eq!(
+            env.cargo_path,
+            PathBuf::from_str(expected_cargo_path).expect("Fail")
+        );
+        assert_eq!(env.pkg_version, expected_cargo_package_version);
+    }
+
+    #[test]
+    fn match_target_type() {
+        let out_dir = "path_to/target/x86_64-unknown-linux-gnu/debug/path/to/out";
+        let target = "x86_64-unknown-linux-gnu";
+        let expected_target_dir = "path_to/target/x86_64-unknown-linux-gnu/";
+        let expected_profile_dir = "path_to/target/x86_64-unknown-linux-gnu/debug";
+
+        let mut values = HashMap::new();
+        values.insert(ENV_OUT_DIR, Some(out_dir));
+        values.insert(ENV_TARGET, Some(target));
+
+        let env = setup_env(values);
+
+        assert_eq!(
+            env.target_dir,
+            PathBuf::from_str(expected_target_dir).expect("Fail")
+        );
+        assert_eq!(
+            env.profile_target_dir,
+            PathBuf::from_str(expected_profile_dir).expect("Fail")
+        );
+    }
+
+    #[test]
+    fn match_target_dir() {
+        let target_dir = "path_to/target";
+        let out_dir = "path_to/target/debug/path/to/out";
+        let target = "x86_64-unknown-linux-gnu";
+        let expected_target_dir = "path_to/target";
+        let expected_profile_dir = "path_to/target/debug";
+
+        let mut values = HashMap::new();
+        values.insert(ENV_OUT_DIR, Some(out_dir));
+        values.insert(ENV_CARGO_TARGET_DIR, Some(target_dir));
+        values.insert(ENV_TARGET, Some(target));
+
+        let env = setup_env(values);
+
+        assert_eq!(
+            env.target_dir,
+            PathBuf::from_str(expected_target_dir).expect("Fail")
+        );
+        assert_eq!(
+            env.profile_target_dir,
+            PathBuf::from_str(expected_profile_dir).expect("Fail")
+        );
+    }
+
+    #[test]
+    fn match_target_string() {
+        let target_dir = "";
+        let out_dir = "path_to/target/debug/path/to/out";
+        let target = "x86_64-unknown-linux-gnu";
+        let expected_target_dir = "path_to/target/";
+        let expected_profile_dir = "path_to/target/debug";
+
+        let mut values = HashMap::new();
+        values.insert(ENV_OUT_DIR, Some(out_dir));
+        values.insert(ENV_CARGO_TARGET_DIR, Some(target_dir));
+        values.insert(ENV_TARGET, Some(target));
+
+        let env = setup_env(values);
+
+        assert_eq!(
+            env.target_dir,
+            PathBuf::from_str(expected_target_dir).expect("Fail")
+        );
+        assert_eq!(
+            env.profile_target_dir,
+            PathBuf::from_str(expected_profile_dir).expect("Fail")
+        );
+    }
+
+    #[test]
+    fn err_out_dir() {
+        let target_dir = "different/path_to_target";
+        let out_dir = "path_to/debug/path/to/out";
+        let target = "x86_64-unknown-linux-gnu";
+
+        let mut values = HashMap::new();
+        values.insert(ENV_OUT_DIR, Some(out_dir));
+        values.insert(ENV_CARGO_TARGET_DIR, Some(target_dir));
+        values.insert(ENV_TARGET, Some(target));
+
+        assert_that_code!(|| setup_env(values))
+            .panics()
+            .with_message(
+            "called `Result::unwrap()` on an `Err` value: OutDir(\"path_to/debug/path/to/out\")",
         );
     }
 }
