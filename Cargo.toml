@@ -1,3 +1,7 @@
+# We need to explicitly specify resolver 2.
+# We shouldn't have to per https://doc.rust-lang.org/edition-guide/rust-2021/default-cargo-resolver.html, but that does not appear to be the case
+resolver = "2"
+
 [package]
 name = "mc-build-rs"
 version = "0.1.0"
@@ -11,11 +15,7 @@ keywords = ["utility", "cargo", "build"]
 license = "Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/mobilecoinfoundation/build-rs"
-rust-version = "1.62.1"
-
-# We need to explicitly specify resolver 2.
-# We shouldn't have to per https://doc.rust-lang.org/edition-guide/rust-2021/default-cargo-resolver.html, but that does not appear to be the case
-resolver = "2"
+rust-version = "1.68"
 
 [profile.release]
 lto = "thin"
@@ -27,12 +27,13 @@ consolidate-commits = true
 consolidate-pushes = true
 tag-name = "v{{version}}"
 
-# The file names in this key are relative to the each crate that gets released.
-# So we only need one `README.md` entry if all the README's follow a
-# common format and are always next to the Cargo.toml for their respective
-# package.
 pre-release-replacements = [
-    {file="README.md", search="mc-[a-z-]+/[0-9.]+", replace="{{crate_name}}/{{version}}"},
+    { file = "README.md", search = "mc-[a-z-]+/[0-9.]+", replace = "{{crate_name}}/{{version}}" },
+    { file = "../../CHANGELOG.md", search = "Unreleased", replace = "{{version}}", min = 1 },
+    { file = "../../CHANGELOG.md", search = "\\.\\.\\.HEAD", replace="...{{tag_name}}", exactly = 1 },
+    { file = "../../CHANGELOG.md", search = "ReleaseDate", replace= "{{date}}", min = 1 },
+    { file = "../../CHANGELOG.md", search = "<!-- next-header -->", replace="<!-- next-header -->\n## [Unreleased] - ReleaseDate\n", exactly = 1 },
+    { file = "../../CHANGELOG.md", search = "<!-- next-url -->", replace="<!-- next-url -->\n[Unreleased]: https://github.com/mobilecoinfoundation/sgx-sigstruct/compare/{{tag_name}}...HEAD", exactly = 1 },
 ]
 
 [dependencies]
