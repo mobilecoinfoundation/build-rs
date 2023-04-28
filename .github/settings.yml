@@ -1,7 +1,7 @@
 ---
 repository:
   name: "build-rs"
-  description: "A brief summary of the workspace"
+  description: "Cargo build script helper"
   homepage: https://github.com/mobilecoinfoundation/build-rs
   topics: "[development-tools::build-utils]"
   private: false
